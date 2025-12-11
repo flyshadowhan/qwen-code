@@ -1,81 +1,37 @@
-name: Build and Push to Docker Hub
+name: Simple Docker Build
 
 on:
   push:
-    branches: [ main, develop ]
-    tags: [ 'v*.*.*' ]
-  pull_request:
     branches: [ main ]
-  workflow_dispatch:  # 允许手动触发
-    inputs:
-      tag:
-        description: 'Custom tag for the image'
-        required: false
-        default: 'manual-${{ github.sha }}'
 
 env:
-  # Docker Hub 配置
   DOCKER_REGISTRY: docker.io
-  DOCKER_REPOSITORY: ${{ secrets.DOCKERHUB_USERNAME }}/qwen-code  # 修改为你的 Docker Hub 用户名
-  IMAGE_NAME: qwen-code
+  DOCKER_REPOSITORY:  ${{ secrets.DOCKERHUB_USERNAME }}/gemini-cli
 
 jobs:
-  # 1. 构建和测试 Docker 镜像
   build:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout repository
+    - name: Checkout code
       uses: actions/checkout@v4
       
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-      
-    - name: Log in to Docker Hub
+    - name: Login to Docker Hub
       uses: docker/login-action@v3
       with:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_TOKEN }}
         
-    - name: Extract metadata (tags, labels)
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: ${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_REPOSITORY }}
-        tags: |
-          # 为 main 分支打上 latest 标签
-          type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' && github.event_name == 'push' }}
-          # 为 develop 分支打上 develop 标签
-          type=raw,value=develop,enable=${{ github.ref == 'refs/heads/develop' }}
-          # 语义化版本标签 (v1.0.0 -> 1.0.0, 1.0, 1)
-          type=semver,pattern={{version}}
-          type=semver,pattern={{major}}.{{minor}}
-          type=semver,pattern={{major}}
-          # 提交 SHA 标签
-          type=sha,prefix=sha-,format=short
-          # 分支名称标签
-          type=ref,event=branch,prefix=pr-
-          # 手动触发时的标签
-          type=raw,value=${{ github.event.inputs.tag }},enable=${{ github.event_name == 'workflow_dispatch' }}
-          
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
       with:
         context: .
-        push: ${{ github.event_name != 'pull_request' }}
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
+        push: true
+        tags: |
+          ${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_REPOSITORY }}:latest
+          ${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_REPOSITORY }}:${{ github.sha }}
+        build-args: |
+          GEMINI_CLI_VERSION=0.14
+          SANDBOX_NAME=gemini-cli-sandbox
         cache-from: type=gha
         cache-to: type=gha,mode=max
-        build-args: |
-          SANDBOX_NAME=qwen-code-sandbox
-          CLI_VERSION_ARG=${{ github.sha }}
-          
-    - name: Display image info
-      if: github.event_name != 'pull_request'
-      run: |
-        echo "构建的镜像标签:"
-        echo "${{ steps.meta.outputs.tags }}"
-        echo ""
-        echo "你可以通过以下命令拉取镜像:"
-        echo "docker pull ${{ env.DOCKER_REGISTRY }}/${{ env.DOCKER_REPOSITORY }}:latest"

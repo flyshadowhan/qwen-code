@@ -1,7 +1,7 @@
-# Build stage
+# 使用多阶段构建
 FROM docker.io/library/node:20-slim AS builder
 
-# Install build dependencies
+# 安装构建依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
   python3 \
   make \
@@ -10,34 +10,31 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 
-# Set up npm global package folder
+# 设置 npm 全局包文件夹
 RUN mkdir -p /usr/local/share/npm-global
 ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
 ENV PATH=$PATH:/usr/local/share/npm-global/bin
 
-# Copy source code
-COPY . /home/node/app
-WORKDIR /home/node/app
+# 安装 @google/gemini-cli
+RUN npm install -g @google/gemini-cli@0.14
 
-# Install dependencies and build packages
-RUN npm ci \
-  && npm run build --workspaces \
-  && npm pack -w @qwen-code/qwen-code --pack-destination ./packages/cli/dist \
-  && npm pack -w @qwen-code/qwen-code-core --pack-destination ./packages/core/dist
-
-# Runtime stage
+# 运行时阶段
 FROM docker.io/library/node:20-slim
 
-ARG SANDBOX_NAME="qwen-code-sandbox"
-ARG CLI_VERSION_ARG
+ARG SANDBOX_NAME="gemini-cli-sandbox"
+ARG CLI_VERSION="0.14"
 ENV SANDBOX="$SANDBOX_NAME"
-ENV CLI_VERSION=$CLI_VERSION_ARG
+ENV CLI_VERSION=$CLI_VERSION
+ENV NODE_ENV=production
 
-# Install runtime dependencies
+# 安装运行时依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
   python3 \
+  python3-pip \
+  python3-venv \
   man-db \
   curl \
+  wget \
   dnsutils \
   less \
   jq \
@@ -51,23 +48,29 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   psmisc \
   lsof \
   socat \
+  net-tools \
+  iputils-ping \
+  netcat-openbsd \
   ca-certificates \
+  openssl \
   && apt-get clean \
   && rm -rf /var/lib/apt/lists/*
 
-# Set up npm global package folder
+# 设置 npm 全局包文件夹
 RUN mkdir -p /usr/local/share/npm-global
 ENV NPM_CONFIG_PREFIX=/usr/local/share/npm-global
 ENV PATH=$PATH:/usr/local/share/npm-global/bin
 
-# Copy built packages from builder stage
-COPY --from=builder /home/node/app/packages/cli/dist/*.tgz /tmp/
-COPY --from=builder /home/node/app/packages/core/dist/*.tgz /tmp/
+# 复制 gemini-cli 从构建阶段
+COPY --from=builder /usr/local/share/npm-global /usr/local/share/npm-global
 
-# Install built packages globally
-RUN npm install -g /tmp/*.tgz \
-  && npm cache clean --force \
-  && rm -rf /tmp/*.tgz
+# 验证安装
+RUN gemini --version && \
+    echo "Gemini CLI version:" && \
+    gemini --version
 
-# Default entrypoint when none specified
-CMD ["qwen"]
+# 创建应用目录
+WORKDIR /app
+
+# 设置容器默认行为
+CMD ["gemini", "--help"]
